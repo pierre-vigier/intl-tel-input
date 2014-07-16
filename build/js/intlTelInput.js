@@ -57,7 +57,6 @@ https://github.com/Bluefieldscom/intl-tel-input.git
         this.ns = "." + pluginName + id++;
         // Chrome, FF, Safari, IE9+
         this.isGoodBrowser = Boolean(element.setSelectionRange);
-        this.isAndroidChrome = navigator.userAgent.match(/Android/i) && navigator.userAgent.match(/Chrome/i);
         this._name = pluginName;
         this.init();
     }
@@ -66,6 +65,12 @@ https://github.com/Bluefieldscom/intl-tel-input.git
             // if in nationalMode, disable options relating to dial codes
             if (this.options.nationalMode) {
                 this.options.autoFormat = this.options.autoHideDialCode = false;
+            }
+            // chrome on android has issues with key events
+            // backspace issues for inputs with type=text: https://code.google.com/p/chromium/issues/detail?id=184812
+            // and improper key codes for keyup and keydown: https://code.google.com/p/chromium/issues/detail?id=118639
+            if (navigator.userAgent.match(/Android/i) && navigator.userAgent.match(/Chrome/i)) {
+                this.options.autoFormat = false;
             }
             // process all the data: onlyCounties, preferredCountries, defaultCountry etc
             this._processCountryData();
@@ -240,29 +245,14 @@ https://github.com/Bluefieldscom/intl-tel-input.git
                     }
                 });
             }
-            // chrome on android can't handle keypress events
-            if (this.options.autoFormat && !this.isAndroidChrome) {
-                // format number and update flag on keypress
-                // use keypress event as we want to ignore all input except for a select few keys,
-                // but we dont want to ignore the navigation keys like the arrows etc.
-                // NOTE: no point in refactoring this to only bind these listeners on focus/blur because then you would need to have those 2 listeners running the whole time anyway...
-                this.telInput.on("keypress" + this.ns, function(e) {
-                    e.preventDefault();
-                    // if the key is a plus, or numeric
-                    var isAllowed = e.which == keys.PLUS || e.which >= keys.ZERO && e.which <= keys.NINE;
-                    that._handleInputKey(e, false, String.fromCharCode(e.which), isAllowed);
-                });
-            }
-            // handle keyup event
+            // handle keyup event - auto format etc
             this.telInput.on("keyup" + this.ns, function(e) {
-                if (!that.options.autoFormat) {
+                if (that.options.autoFormat) {
+                    var isDelete = e.which == keys.BACKSPACE || e.which == keys.DELETE;
+                    that._handleInputKey(isDelete, "", true);
+                } else {
                     // if no autoFormat, just update flag
                     that.setNumber(that.telInput.val());
-                } else if (e.which == keys.BACKSPACE || e.which == keys.DELETE || that.isAndroidChrome) {
-                    // autoFormat=true and this is a delete key, so reformat number
-                    // use keyup here as want to reformat AFTER the delete has done it's damage
-                    var isDelete = !that.isAndroidChrome;
-                    that._handleInputKey(e, isDelete, "", true);
                 }
             });
             // toggle country dropdown on click
@@ -294,39 +284,43 @@ https://github.com/Bluefieldscom/intl-tel-input.git
             }
         },
         // handle a key event on the input - deals with replacing any currently selected chars, and then formatting and then putting the cursor back in the right place
-        _handleInputKey: function(e, isDelete, newChar, isAllowed) {
-            var val = this.telInput.val(), newCursor = null, cursorAtEnd = false, // raw DOM element
+        _handleInputKey: function(isDelete, newChar, isAllowed) {
+            var val = this.telInput.val(), //newCursor = null,
+            //cursorAtEnd = false,
+            // raw DOM element
             input = this.telInput[0];
-            if (this.isGoodBrowser) {
-                var selectionStart = input.selectionStart, originalLen = val.length;
-                // at this point, cursorAtEnd should be false even if selectionEnd is at the end, because if isAllowed is false, we wont be replacing the selection
-                cursorAtEnd = selectionStart == originalLen;
-                if (isAllowed) {
-                    var selectionEnd = input.selectionEnd;
-                    // replace any selection they may have made with the new char
-                    val = val.substring(0, selectionStart) + newChar + val.substring(selectionEnd, originalLen);
-                    // if the cursor/end of selection was at the end, we will make sure it's there afterwards
-                    // else calculate the newCursor position
-                    if (selectionEnd === originalLen) {
-                        cursorAtEnd = true;
-                    } else {
-                        newCursor = selectionEnd + (val.length - originalLen);
-                    }
-                }
-            } else if (isAllowed) {
-                val += newChar;
-            }
+            var start = input.selectionStart, end = input.selectionEnd, cursorAtEnd = start == val.length;
+            /*if (this.isGoodBrowser) {
+        var selectionStart = input.selectionStart,
+          originalLen = val.length;
+        // at this point, cursorAtEnd should be false even if selectionEnd is at the end, because if isAllowed is false, we wont be replacing the selection
+        cursorAtEnd = (selectionStart == originalLen);
+
+        if (isAllowed) {
+          var selectionEnd = input.selectionEnd;
+          // replace any selection they may have made with the new char
+          val = val.substring(0, selectionStart) + newChar + val.substring(selectionEnd, originalLen);
+          // if the cursor/end of selection was at the end, we will make sure it's there afterwards
+          // else calculate the newCursor position
+          if (selectionEnd === originalLen) {
+            cursorAtEnd = true;
+          } else {
+            newCursor = selectionEnd + (val.length - originalLen);
+          }
+        }
+      } else if (isAllowed) {
+        val += newChar;
+      }*/
             // if the cursor is at the end, then always trigger a reformat as may want to add extra formatting suffix
-            if (isAllowed || cursorAtEnd) {
-                // update the number and flag
-                this.setNumber(val, isDelete);
-                // update the cursor position
-                if (cursorAtEnd) {
-                    newCursor = this.telInput.val().length;
-                }
-                if (this.isGoodBrowser && newCursor) {
-                    input.setSelectionRange(newCursor, newCursor);
-                }
+            //if (isAllowed || cursorAtEnd) {
+            // update the number and flag
+            this.setNumber(val, isDelete);
+            // update the cursor position
+            if (cursorAtEnd) {
+                start = end = this.telInput.val().length;
+            }
+            if (this.isGoodBrowser) {
+                input.setSelectionRange(start, end);
             }
         },
         // on focus: if empty add dial code. on blur: if just dial code, then empty it
